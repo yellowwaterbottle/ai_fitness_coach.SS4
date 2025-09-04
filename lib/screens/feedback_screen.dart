@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
 import '../models/score_response.dart';
 import '../services/revenuecat_service.dart';
 
@@ -13,23 +12,16 @@ class FeedbackScreen extends StatefulWidget {
 
 class _FeedbackScreenState extends State<FeedbackScreen> {
   bool _premium = false;
-  List<Package> _packages = [];
 
   @override
   void initState() {
     super.initState();
-    _checkEntitlements();
+    _checkPremiumStatus();
   }
 
-  Future<void> _checkEntitlements() async {
+  Future<void> _checkPremiumStatus() async {
     try {
-      await RevenueCatService.init();
       _premium = await RevenueCatService.isPremium();
-      final offerings = await Purchases.getOfferings();
-      _packages = [
-        ...?offerings.current?.monthly?.availablePackages,
-        ...?offerings.current?.annual?.availablePackages,
-      ];
       if (mounted) setState(() {});
     } catch (_) {
       if (mounted) setState(() {});
@@ -40,6 +32,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   Widget build(BuildContext context) {
     final ScoreResponse score =
         ModalRoute.of(context)!.settings.arguments as ScoreResponse;
+    
     return Scaffold(
       appBar: AppBar(title: const Text('AI Scorecard')),
       body: Padding(
@@ -47,7 +40,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
+              // Large Holistic Score (always visible)
               Center(
                 child: Text(
                   'Holistic: ${score.holistic}',
@@ -57,28 +52,29 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
+              
+              // Form & Intensity rows
               Row(
                 children: [
-                  Expanded(child: _blurCard('Form: ${score.form}', !_premium)),
+                  Expanded(child: _buildScoreCard('Form', score.form, !_premium)),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: _blurCard(
-                      'Intensity: ${score.intensity}',
-                      !_premium,
-                    ),
-                  ),
+                  Expanded(child: _buildScoreCard('Intensity', score.intensity, !_premium)),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
+              
               if (score.insufficient) ...[
-                const Text('Insufficient video for full analysis.'),
-                const SizedBox(height: 8),
+                const Text(
+                  'Insufficient video for full analysis.',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
                 const Text('Tips:'),
                 const Text('• Good lighting'),
                 const Text('• Full body and bar in frame'),
                 const Text('• Stable phone'),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: () =>
                       Navigator.of(context).popUntil((r) => r.isFirst),
@@ -86,34 +82,53 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 ),
               ] else ...[
                 if (_premium) ...[
-                  const Text('Cues'),
-                  for (final c in score.cues.take(5)) Text('• $c'),
-                  const SizedBox(height: 12),
-                  const Text('Issues'),
-                  for (final i in score.issues)
-                    Text(
-                      '• ${i.label} (${i.severity}) ${i.repRange}: ${i.note}',
+                  // Premium users see full details
+                  const Text(
+                    'Cues',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  for (final c in score.cues.take(5)) 
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8, bottom: 4),
+                      child: Text('• $c'),
+                    ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Issues',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  for (final i in score.issues.take(5))
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8, bottom: 4),
+                      child: Text(
+                        '• ${i.label} (${i.severity}) ${i.repRange}: ${i.note}',
+                      ),
                     ),
                 ] else ...[
+                  // Free users see unlock button
                   Center(
                     child: ElevatedButton(
-                      onPressed: _packages.isEmpty
-                          ? _goPaywall
-                          : () async {
-                              final success =
-                                  await RevenueCatService.purchasePackage(
-                                    _packages.first,
-                                  );
-                              if (success && mounted) {
-                                setState(() => _premium = true);
-                              } else {
-                                _goPaywall();
-                              }
-                            },
+                      onPressed: () => Navigator.of(context).pushNamed('/paywall'),
                       child: const Text('Unlock Premium'),
                     ),
                   ),
                 ],
+                const SizedBox(height: 24),
+                Center(
+                  child: ElevatedButton(
+                    onPressed: () =>
+                        Navigator.of(context).popUntil((r) => r.isFirst),
+                    child: const Text('Retake'),
+                  ),
+                ),
               ],
             ],
           ),
@@ -122,7 +137,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 
-  Widget _blurCard(String text, bool blur) {
+  Widget _buildScoreCard(String label, int score, bool blur) {
     return Container(
       padding: const EdgeInsets.all(16),
       height: 90,
@@ -134,15 +149,37 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         children: [
           Align(
             alignment: Alignment.centerLeft,
-            child: Text(text, style: const TextStyle(fontSize: 20)),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$score',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
           ),
-          if (blur) Container(color: Colors.white.withOpacity(0.75)),
+          if (blur) 
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
         ],
       ),
     );
-  }
-
-  void _goPaywall() {
-    Navigator.of(context).pushNamed('/paywall');
   }
 }

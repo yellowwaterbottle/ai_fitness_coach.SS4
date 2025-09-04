@@ -1,68 +1,50 @@
 import 'package:flutter/material.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
-import '../services/revenuecat_service.dart';
 
-class PaywallScreen extends StatefulWidget {
+class PaywallScreen extends StatelessWidget {
   static const routeName = '/paywall';
   const PaywallScreen({super.key});
 
   @override
-  State<PaywallScreen> createState() => _PaywallScreenState();
-}
-
-class _PaywallScreenState extends State<PaywallScreen> {
-  List<Package> _packages = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      await RevenueCatService.init();
-      final offerings = await Purchases.getOfferings();
-      setState(() {
-        _packages = [
-          ...?offerings.current?.monthly?.availablePackages,
-          ...?offerings.current?.annual?.availablePackages,
-        ];
-      });
-    } catch (_) {}
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Upgrade')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Premium unlocks:'),
-            const Text('• Unlimited analyses'),
-            const Text('• Full scores and cues'),
-            const SizedBox(height: 16),
-            if (_packages.isEmpty)
-              const Center(child: CircularProgressIndicator())
-            else ...[
-              for (final pkg in _packages)
-                ListTile(
-                  title: Text(pkg.storeProduct.title),
-                  subtitle: Text(pkg.storeProduct.priceString),
-                  trailing: ElevatedButton(
-                    onPressed: () async {
-                      final ok = await RevenueCatService.purchasePackage(pkg);
-                      if (!mounted) return;
-                      if (ok) Navigator.of(context).pop();
-                    },
-                    child: const Text('Buy'),
-                  ),
+      appBar: AppBar(title: const Text('Premium')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.star_outline,
+                size: 64,
+                color: Colors.amber,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Premium coming soon.',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
                 ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'In this MVP, subscores are locked for free users.',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
             ],
-          ],
+          ),
         ),
       ),
     );

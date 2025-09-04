@@ -4,14 +4,26 @@ import '../models/score_response.dart';
 
 class GeminiService {
   static const String promptVersion = '1.0.0';
-  final String apiKey; // Provide via constructor or env
+  static const bool kFakeAnalysis = true; // Set to false for real analysis
+  final String? apiKey;
 
-  GeminiService({required this.apiKey});
+  GeminiService({this.apiKey});
 
   Future<ScoreResponse?> analyze({
     required List<String> base64Frames,
     required List<String> base64Snippets,
   }) async {
+    // Fake analysis mode
+    if (kFakeAnalysis) {
+      await Future.delayed(const Duration(seconds: 1)); // Simulate processing time
+      return _getFakeScoreResponse();
+    }
+
+    // Real analysis mode
+    if (apiKey == null || apiKey!.isEmpty) {
+      throw Exception('GEMINI_API_KEY not provided. Set kFakeAnalysis = true for testing.');
+    }
+
     final uri = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey',
     );
@@ -85,5 +97,28 @@ class GeminiService {
     } catch (_) {
       return null;
     }
+  }
+
+  ScoreResponse _getFakeScoreResponse() {
+    return ScoreResponse(
+      holistic: 78,
+      form: 74,
+      intensity: 82,
+      issues: [
+        IssueItem(
+          label: 'Elbow flare',
+          severity: 'medium',
+          repRange: '3–6',
+          note: 'Elbows drifted >70°; tuck ~5° at bottom',
+        ),
+      ],
+      cues: [
+        'Press back then up (J-curve)',
+        'Knuckles to ceiling (neutral wrists)',
+        'Soft chest touch—no bounce',
+      ],
+      insufficient: false,
+      insufficientReasons: [],
+    ).copyWith(holistic: ((74 + 82) / 2).round());
   }
 }

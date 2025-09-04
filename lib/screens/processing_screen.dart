@@ -16,6 +16,8 @@ class ProcessingScreen extends StatefulWidget {
 class _ProcessingScreenState extends State<ProcessingScreen> {
   final SamplingService _sampler = SamplingService();
   final GatingService _gating = GatingService();
+  String _currentStep = 'Checking limits...';
+  int _stepNumber = 1;
 
   @override
   void initState() {
@@ -24,37 +26,86 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   }
 
   Future<void> _process() async {
-    final path = ModalRoute.of(context)!.settings.arguments as String;
-    // Gating: free users 1/day
-    // Note: premium bypass handled in FeedbackScreen using RevenueCat
-    final canFree = await _gating.canAnalyzeFreeUser();
-    if (!canFree) {
+    try {
+      // Get video path from arguments
+      final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+      final videoPath = args['videoPath'] as String;
+
+      // Step 1: Gate check
+      setState(() {
+        _currentStep = 'Checking daily limits...';
+        _stepNumber = 1;
+      });
+      
+      final canFree = await _gating.canAnalyzeFreeUser();
+      if (!canFree) {
+        if (!mounted) return;
+        _showDailyLimitReached();
+        return;
+      }
+
+      // Step 2: Sampling
+      setState(() {
+        _currentStep = 'Extracting video samples...';
+        _stepNumber = 2;
+      });
+      
+      final samplingResult = await _sampler.sample(videoPath);
+
+      // Step 3: Analysis
+      setState(() {
+        _currentStep = 'Analyzing with AI...';
+        _stepNumber = 3;
+      });
+      
+      final gemini = GeminiService();
+      final score = await gemini.analyze(
+        base64Frames: samplingResult.frames,
+        base64Snippets: samplingResult.snippets,
+      );
+
+      if (score == null) {
+        if (!mounted) return;
+        _showRetry();
+        return;
+      }
+
+      await _gating.recordAnalysisUsed();
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/paywall');
-      return;
-    }
-
-    final frames = await _sampler.extractKeyframesBase64(path);
-    final snippets = await _sampler.extractSnippetsBase64(path);
-
-    // Call Gemini
-    final gemini = GeminiService(
-      apiKey: Platform.environment['GEMINI_API_KEY'] ?? 'YOUR_API_KEY',
-    );
-    ScoreResponse? score = await gemini.analyze(
-      base64Frames: frames,
-      base64Snippets: snippets,
-    );
-
-    if (score == null) {
+      Navigator.of(context).pushReplacementNamed('/feedback', arguments: score);
+    } catch (e) {
       if (!mounted) return;
       _showRetry();
-      return;
     }
+  }
 
-    await _gating.recordAnalysisUsed();
-    if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed('/feedback', arguments: score);
+  void _showDailyLimitReached() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('Daily Limit Reached'),
+          content: const Text('You\'ve used your free analysis for today. Upgrade to Premium for unlimited analyses.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pushNamed('/paywall');
+              },
+              child: const Text('Go Premium'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).popUntil((r) => r.isFirst);
+              },
+              child: const Text('Back to Record'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showRetry() {
@@ -63,8 +114,8 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       barrierDismissible: false,
       builder: (_) {
         return AlertDialog(
-          title: const Text('Network or Server Issue'),
-          content: const Text('Took too long or failed. Try again.'),
+          title: const Text('Analysis Failed'),
+          content: const Text('Something went wrong during analysis. Please try again.'),
           actions: [
             TextButton(
               onPressed: () {
@@ -72,6 +123,13 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
                 Navigator.of(context).pop();
               },
               child: const Text('Retry'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).popUntil((r) => r.isFirst);
+              },
+              child: const Text('Back to Record'),
             ),
           ],
         );
@@ -81,14 +139,41 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Analyzing'),
+        automaticallyImplyLeading: false,
+      ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 12),
-            Text('Processing (target < 10s)...'),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 24),
+            Text(
+              'Analyzing set (step $_stepNumber/3)',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _currentStep,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'This may take a few moments...',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
           ],
         ),
       ),

@@ -91,4 +91,28 @@ class ScoreResponse {
       return null;
     }
   }
+
+  // Helper method to recompute holistic score
+  int get recomputeHolistic => _clampScore((form + intensity) / 2);
+
+  // Copy with method for updating scores
+  ScoreResponse copyWith({
+    int? holistic,
+    int? form,
+    int? intensity,
+    List<IssueItem>? issues,
+    List<String>? cues,
+    bool? insufficient,
+    List<String>? insufficientReasons,
+  }) {
+    return ScoreResponse(
+      holistic: holistic ?? this.holistic,
+      form: form ?? this.form,
+      intensity: intensity ?? this.intensity,
+      issues: issues ?? this.issues,
+      cues: cues ?? this.cues,
+      insufficient: insufficient ?? this.insufficient,
+      insufficientReasons: insufficientReasons ?? this.insufficientReasons,
+    );
+  }
 }
