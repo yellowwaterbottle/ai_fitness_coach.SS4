@@ -1,0 +1,4 @@
+# Keep iOS build files LF
+*.sh text eol=lf
+*.xcconfig text eol=lf
+ios/Podfile text eol=lf

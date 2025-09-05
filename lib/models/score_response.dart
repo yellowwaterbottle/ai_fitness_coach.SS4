@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'breakdown.dart';
 
 int _clamp01_100(num? v) {
   if (v == null || v.isNaN) return 0;
@@ -53,6 +54,8 @@ class ScoreResponse {
   final List<String> cues;
   final bool insufficient;
   final List<String> insufficientReasons;
+  final List<BreakdownItem>? formBreakdown;
+  final List<BreakdownItem>? intensityBreakdown;
 
   ScoreResponse({
     required this.holistic,
@@ -62,6 +65,8 @@ class ScoreResponse {
     required this.cues,
     required this.insufficient,
     required this.insufficientReasons,
+    this.formBreakdown,
+    this.intensityBreakdown,
   });
 
   static int _clampScore(num value) {
@@ -114,6 +119,30 @@ class ScoreResponse {
     }
   }
 
+  static List<BreakdownItem>? _parseBreakdown(dynamic v, {bool allowCredits = true}) {
+    if (v is! List) return null;
+    final out = <BreakdownItem>[];
+    for (final e in v) {
+      if (e is Map<String, dynamic>) {
+        final pts = (e['points'] is num) ? (e['points'] as num).round() : 0;
+        final polStr = (e['polarity'] ?? (pts >= 0 ? 'credit' : 'penalty')).toString().toLowerCase();
+        final pol = switch (polStr) {
+          'penalty' => BreakdownPolarity.penalty,
+          'credit' => BreakdownPolarity.credit,
+          _ => BreakdownPolarity.neutral,
+        };
+        out.add(BreakdownItem(
+          title: (e['title'] ?? e['label'] ?? '').toString(),
+          note: e['note']?.toString(),
+          points: pts,
+          polarity: pol,
+          metricKey: e['metricKey']?.toString(),
+        ));
+      }
+    }
+    return out.isEmpty ? null : out;
+  }
+
   factory ScoreResponse.fromGeminiJson(Map<String, dynamic> j) {
     final issues = ((j["issues"] as List?) ?? const [])
         .whereType<Map<String, dynamic>>()
@@ -129,6 +158,9 @@ class ScoreResponse {
         .map((e) => e.toString())
         .toList();
     
+    final formBreak = _parseBreakdown(j['formBreakdown']);
+    final intBreak = _parseBreakdown(j['intensityBreakdown']);
+    
     print("fromGeminiJson: raw form=${j["form"]}, raw intensity=${j["intensity"]}, raw holistic=${j["holistic"]}");
     print("fromGeminiJson: clamped form=$f, clamped intensity=$i, final holistic=$h");
     
@@ -136,6 +168,8 @@ class ScoreResponse {
       holistic: h, form: f, intensity: i,
       insufficient: (j["insufficient"] ?? false) == true,
       issues: issues, cues: cues, insufficientReasons: insufficientReasons,
+      formBreakdown: formBreak,
+      intensityBreakdown: intBreak,
     );
   }
 
@@ -155,6 +189,8 @@ class ScoreResponse {
     List<String>? cues,
     bool? insufficient,
     List<String>? insufficientReasons,
+    List<BreakdownItem>? formBreakdown,
+    List<BreakdownItem>? intensityBreakdown,
   }) {
     return ScoreResponse(
       holistic: holistic ?? this.holistic,
@@ -164,7 +200,14 @@ class ScoreResponse {
       cues: cues ?? this.cues,
       insufficient: insufficient ?? this.insufficient,
       insufficientReasons: insufficientReasons ?? this.insufficientReasons,
+      formBreakdown: formBreakdown ?? this.formBreakdown,
+      intensityBreakdown: intensityBreakdown ?? this.intensityBreakdown,
     );
   }
+
+  // Convenience getters for percentages
+  double get formPercent => (form.clamp(0,100))/100.0;
+  double get intensityPercent => (intensity.clamp(0,100))/100.0;
+  double get holisticPercent => (holistic.clamp(0,100))/100.0;
 }
 

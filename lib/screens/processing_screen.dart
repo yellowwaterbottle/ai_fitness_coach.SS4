@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../services/sampling_service.dart';
 import '../services/gemini_service.dart';
 import '../services/gating_service.dart';
+import '../ui/style.dart';
+import '../widgets/animated_gradient_square.dart';
 
 class ProcessingScreen extends StatefulWidget {
   static const routeName = '/processing';
@@ -16,6 +18,8 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   final GatingService _gating = GatingService();
   String _currentStep = 'Checking limits...';
   int _stepNumber = 1;
+  bool _isAnalyzing = true;
+  String? _errorMsg;
 
   @override
   void initState() {
@@ -38,7 +42,10 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       final canFree = await _gating.canAnalyzeFreeUser();
       if (!canFree) {
         if (!mounted) return;
-        _showDailyLimitReached();
+        setState(() {
+          _isAnalyzing = false;
+          _errorMsg = 'Daily limit reached. Upgrade to Premium for unlimited analyses.';
+        });
         return;
       }
 
@@ -71,8 +78,16 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       Navigator.of(context).pushReplacementNamed('/feedback', arguments: score);
     } catch (e) {
       if (!mounted) return;
-      _showError(e.toString());
+      setState(() {
+        _isAnalyzing = false;
+        _errorMsg = e.toString();
+      });
     }
+  }
+
+  void _cancelIfSupported() {
+    // For now, just navigate back - in future could cancel in-flight requests
+    Navigator.of(context).pop();
   }
 
   void _showDailyLimitReached() {
@@ -192,42 +207,157 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Analyzing'),
-        automaticallyImplyLeading: false,
+    final loading = _isAnalyzing;
+    return Container(
+      decoration: const BoxDecoration(gradient: AppStyle.pageBg),
+      child: SafeArea(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (loading) ...[
+                // Soft glow behind the square
+                Positioned(
+                  bottom: MediaQuery.of(context).size.height * 0.30,
+                  child: Container(
+                    width: 320, height: 320,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(color: const Color(0x335EEAD4), blurRadius: 90, spreadRadius: 12),
+                        BoxShadow(color: const Color(0x337C3AED), blurRadius: 60, spreadRadius: 8),
+                      ],
+                    ),
+                  ),
+                ),
+                // Rotating gradient square (no logo)
+                Positioned(
+                  bottom: MediaQuery.of(context).size.height * 0.28,
+                  child: const AnimatedGradientSquare(size: 220, strokeWidth: 2.5),
+                ),
+                // Label text
+                Positioned(
+                  bottom: MediaQuery.of(context).size.height * 0.20,
+                  child: Text(
+                    "Analyzing your form…",
+                    style: const TextStyle(
+                      color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: 0.2),
+                  ),
+                ),
+              ],
+
+              // --- Optional: show small step hint or cancel ---
+              Positioned(
+                top: 12, left: 12,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                  onPressed: loading ? _cancelIfSupported : () => Navigator.pop(context),
+                  tooltip: loading ? "Cancel analysis" : "Back",
+                ),
+              ),
+
+              // If you show errors, overlay a card here when state == error
+              if (_errorMsg != null) _ErrorCard(msg: _errorMsg!, onBack: () => Navigator.pop(context)),
+            ],
+          ),
+        ),
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 24),
-            Text(
-              'Analyzing set (step $_stepNumber/3)',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+    );
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  final String msg; 
+  final VoidCallback onBack;
+  const _ErrorCard({required this.msg, required this.onBack});
+  
+  @override
+  Widget build(BuildContext context) {
+    String userMessage;
+    String? details;
+    
+    // Split error into first line and details for expandable view
+    final lines = msg.split('\n');
+    final firstLine = lines.first;
+    if (lines.length > 1) {
+      details = lines.skip(1).join('\n').trim();
+    }
+    
+    // Map specific errors to user-friendly messages
+    if (msg.contains('Video file not found')) {
+      userMessage = "Couldn't read the video file.";
+    } else if (msg.contains('FFmpeg extraction produced no media')) {
+      userMessage = "Couldn't extract frames/clips. Try a shorter, clearer video.";
+    } else if (msg.contains('GEMINI_API_KEY')) {
+      userMessage = 'Missing API key. Run with --dart-define=GEMINI_API_KEY=YOUR_KEY';
+    } else if (msg.contains('auth error') || msg.contains('401') || msg.contains('403')) {
+      userMessage = 'Auth error. Check your API key / Google project.';
+    } else if (msg.contains('PayloadTooLarge') || msg.contains('413')) {
+      userMessage = 'Video too large for AI. We\'ll retry with fewer frames automatically.';
+    } else if (msg.contains('JSON parse failed')) {
+      userMessage = 'AI returned invalid JSON. Retrying…';
+    } else if (msg.contains('Daily limit reached')) {
+      userMessage = 'Daily limit reached. Upgrade to Premium for unlimited analyses.';
+    } else {
+      userMessage = firstLine.length > 120 ? '${firstLine.substring(0, 120)}...' : firstLine;
+    }
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Material(
+          color: const Color(0xFF1A2236),
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Analysis failed", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(userMessage, style: const TextStyle(color: Colors.white70)),
+                if (details != null) ...[
+                  const SizedBox(height: 12),
+                  ExpansionTile(
+                    title: const Text('Technical Details', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    iconColor: Colors.white70,
+                    collapsedIconColor: Colors.white70,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0E1220),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          details,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            color: Colors.white60,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: onBack, 
+                      child: const Text("Back", style: TextStyle(color: Colors.white70)),
+                    ),
+                  ],
+                )
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              _currentStep,
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.grey,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'This may take a few moments...',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
