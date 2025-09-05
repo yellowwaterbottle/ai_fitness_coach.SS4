@@ -19,7 +19,10 @@ class BenchMvpApp extends StatelessWidget {
     return MaterialApp(
       title: 'bench_mvp',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: Colors.transparent,
+        fontFamily: 'SF Pro',
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue, brightness: Brightness.dark),
       ),
       initialRoute: RecordScreen.routeName,
       routes: {
