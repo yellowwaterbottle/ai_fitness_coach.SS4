@@ -1,5 +1,13 @@
 import 'dart:convert';
 
+int _clamp01_100(num? v) {
+  if (v == null || v.isNaN) return 0;
+  final d = v.toDouble();
+  if (d < 0) return 0;
+  if (d > 100) return 100;
+  return d.round();
+}
+
 class IssueItem {
   final String label;
   final String severity; // low|medium|high
@@ -21,6 +29,20 @@ class IssueItem {
       note: (json['note'] ?? '').toString(),
     );
   }
+}
+
+class Issue {
+  final String label;
+  final String severity; // low|medium|high
+  final String? repRange;
+  final String? note;
+  Issue({required this.label, required this.severity, this.repRange, this.note});
+  factory Issue.fromJson(Map<String, dynamic> j) => Issue(
+    label: (j["label"] ?? "").toString(),
+    severity: (j["severity"] ?? "medium").toString(),
+    repRange: j["repRange"]?.toString(),
+    note: j["note"]?.toString(),
+  );
 }
 
 class ScoreResponse {
@@ -92,8 +114,37 @@ class ScoreResponse {
     }
   }
 
-  // Helper method to recompute holistic score
-  int get recomputeHolistic => _clampScore((form + intensity) / 2);
+  factory ScoreResponse.fromGeminiJson(Map<String, dynamic> j) {
+    final issues = ((j["issues"] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map((issue) => IssueItem.fromJson(issue))
+        .toList();
+    final cues = ((j["cues"] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList();
+    final f = _clamp01_100(j["form"] as num?);
+    final i = _clamp01_100(j["intensity"] as num?);
+    final h = _clamp01_100(j["holistic"] as num?);
+    final insufficientReasons = ((j["insufficient_reasons"] as List?) ?? const [])
+        .map((e) => e.toString())
+        .toList();
+    
+    print("fromGeminiJson: raw form=${j["form"]}, raw intensity=${j["intensity"]}, raw holistic=${j["holistic"]}");
+    print("fromGeminiJson: clamped form=$f, clamped intensity=$i, final holistic=$h");
+    
+    return ScoreResponse(
+      holistic: h, form: f, intensity: i,
+      insufficient: (j["insufficient"] ?? false) == true,
+      issues: issues, cues: cues, insufficientReasons: insufficientReasons,
+    );
+  }
+
+  // Method to recompute holistic score and return new instance
+  ScoreResponse recomputeHolistic() {
+    final h = ((form + intensity) / 2).round();
+    print("recomputeHolistic: form=$form, intensity=$intensity, calculated holistic=$h");
+    return copyWith(holistic: h.clamp(0, 100));
+  }
 
   // Copy with method for updating scores
   ScoreResponse copyWith({
@@ -116,3 +167,4 @@ class ScoreResponse {
     );
   }
 }
+

@@ -1,111 +1,148 @@
-import 'dart:convert';
 import 'dart:io';
-import 'package:ffmpeg_kit_flutter_minimal/ffmpeg_kit.dart';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+
+class SamplingOptions {
+  final int maxFrames; // default 24
+  final int targetWidth; // default 480
+  final double jpegQuality; // 0.0..1.0 => map to ffmpeg qscale (2..31)
+  final int snippetCount; // default 1
+  final double snippetDurationSec; // default 0.6
+  const SamplingOptions({
+    this.maxFrames = 24,
+    this.targetWidth = 480,
+    this.jpegQuality = 0.72,
+    this.snippetCount = 1,
+    this.snippetDurationSec = 0.6,
+  });
+}
 
 class SamplingResult {
-  final List<String> frames;
-  final List<String> snippets;
-
-  SamplingResult({
-    required this.frames,
-    required this.snippets,
+  final List<String> framesBase64Jpeg;
+  final List<String> snippetsBase64Mp4;
+  final int approxTotalBase64Bytes;
+  final String diagnostics; // short human-readable summary
+  const SamplingResult({
+    required this.framesBase64Jpeg,
+    required this.snippetsBase64Mp4,
+    required this.approxTotalBase64Bytes,
+    required this.diagnostics,
   });
 }
 
 class SamplingService {
-  // Main sampling method that extracts frames and snippets
-  Future<SamplingResult> sample(String videoPath) async {
+  Future<SamplingResult> sample(String videoPath, {SamplingOptions opts = const SamplingOptions()}) async {
+    // 0) Normalize path and verify readable file
+    final inFile = File(videoPath.replaceFirst('file://', ''));
+    if (!await inFile.exists()) {
+      throw Exception("Video file not found at $videoPath");
+    }
+    final inSize = await inFile.length();
+
+    final tmpDir = await getTemporaryDirectory();
+    final work = Directory(p.join(tmpDir.path, 'bench_mvp_work'));
+    if (!await work.exists()) await work.create(recursive: true);
+
+    var frames = <String>[];
+    var clips = <String>[];
+    var logs = StringBuffer();
+
+    // Extract video thumbnail frames using video_thumbnail package
+    debugPrint('Extracting video frames using video_thumbnail...');
+    logs.writeln('Starting frame extraction from video: ${inFile.path}');
+    
     try {
-      // Extract keyframes (max 90 as specified)
-      final frames = await extractKeyframesBase64(videoPath);
+      // Extract frames at strategic time points for bench press analysis
+      final framesToExtract = math.min(opts.maxFrames, 15); // Optimized for Gemini payload
       
-      // Extract snippets (max 3 as specified)
-      final snippets = await extractSnippetsBase64(videoPath, maxSnippets: 3);
-      
-      return SamplingResult(
-        frames: frames,
-        snippets: snippets,
-      );
+      for (int i = 0; i < framesToExtract; i++) {
+        try {
+          // Strategic time distribution: early, middle, late in video
+          int timeMs;
+          if (i == 0) {
+            timeMs = 500; // Start position setup
+          } else if (i == 1) {
+            timeMs = 2000; // Descent phase
+          } else if (i == 2) {
+            timeMs = 4000; // Bottom position
+          } else if (i == 3) {
+            timeMs = 6000; // Press phase
+          } else if (i == 4) {
+            timeMs = 8000; // Lockout
+          } else {
+            // Additional frames distributed throughout
+            timeMs = 1000 + (i * 2000);
+          }
+          
+          debugPrint('Extracting frame ${i + 1} at ${timeMs}ms...');
+          
+          final thumbnailData = await VideoThumbnail.thumbnailData(
+            video: inFile.path,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: opts.targetWidth, // 480px width for good detail
+            maxHeight: 640, // Maintain aspect ratio
+            timeMs: timeMs,
+            quality: (opts.jpegQuality * 100).round().clamp(50, 90), // High quality for analysis
+          );
+          
+          if (thumbnailData != null && thumbnailData.isNotEmpty) {
+            final base64Frame = base64Encode(thumbnailData);
+            frames.add(base64Frame);
+            debugPrint('✓ Frame ${i + 1} extracted: ${thumbnailData.length} bytes (${base64Frame.length} base64)');
+            logs.writeln('Frame ${i + 1} at ${timeMs}ms: ${thumbnailData.length} bytes');
+          } else {
+            debugPrint('✗ Frame ${i + 1} extraction returned null/empty');
+            logs.writeln('Frame ${i + 1} at ${timeMs}ms: failed (null/empty)');
+          }
+        } catch (e) {
+          debugPrint('✗ Frame ${i + 1} extraction error: $e');
+          logs.writeln('Frame ${i + 1} extraction failed: $e');
+        }
+      }
     } catch (e) {
-      // Return empty result on error
-      return SamplingResult(
-        frames: <String>[],
-        snippets: <String>[],
-      );
-    }
-  }
-
-  // Extract ~1 fps keyframes (max 90)
-  Future<List<String>> extractKeyframesBase64(String inputPath) async {
-    final dir = await getTemporaryDirectory();
-    final outDir = Directory(p.join(dir.path, 'bench_frames'));
-    if (await outDir.exists()) await outDir.delete(recursive: true);
-    await outDir.create(recursive: true);
-
-    final outPattern = p.join(outDir.path, 'frame_%03d.jpg');
-    final cmd =
-        "-y -i '${inputPath.replaceAll("'", "'\\''")}' -vf fps=1 -frames:v 90 '$outPattern'";
-    await FFmpegKit.execute(cmd);
-
-    final files = (await outDir.list().toList()).whereType<File>().toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
-
-    final data = <String>[];
-    for (final f in files) {
-      final bytes = await f.readAsBytes();
-      data.add(base64Encode(bytes));
-    }
-    return data;
-  }
-
-  // Extract up to 6 ~0.7s snippets at uniform timestamps
-  Future<List<String>> extractSnippetsBase64(
-    String inputPath, {
-    int maxSnippets = 6,
-  }) async {
-    final dir = await getTemporaryDirectory();
-    final outDir = Directory(p.join(dir.path, 'bench_snips'));
-    if (await outDir.exists()) await outDir.delete(recursive: true);
-    await outDir.create(recursive: true);
-
-    // Probe duration via ffprobe
-    double durationSec = await _probeDurationSeconds(inputPath);
-    if (durationSec.isNaN || durationSec <= 0) durationSec = 10.0;
-    final count = durationSec < 5 ? 2 : maxSnippets;
-
-    final timestamps = <double>[];
-    for (int i = 1; i <= count; i++) {
-      final t = (durationSec * i) / (count + 1);
-      timestamps.add(t);
+      debugPrint('Video thumbnail extraction setup failed: $e');
+      logs.writeln('Video thumbnail extraction setup failed: $e');
     }
 
-    final results = <String>[];
-    for (int i = 0; i < timestamps.length; i++) {
-      final ts = timestamps[i];
-      final outPath = p.join(outDir.path, 'snip_$i.mp4');
-      final cmd =
-          "-y -ss ${ts.toStringAsFixed(2)} -i '${inputPath.replaceAll("'", "'\\''")}' -t 0.7 -an -c:v libx264 -preset ultrafast -crf 28 '$outPath'";
-      await FFmpegKit.execute(cmd);
-      final file = File(outPath);
-      if (await file.exists()) {
-        results.add(base64Encode(await file.readAsBytes()));
+    // Fallback: if no frames extracted, try to use original video (if reasonably sized)
+    if (frames.isEmpty && clips.isEmpty) {
+      debugPrint('No frames extracted, attempting video fallback...');
+      try {
+        final b = await inFile.readAsBytes();
+        // Use more aggressive size limits for Gemini API (max ~10MB for reliable processing)
+        if (b.length < 10 * 1024 * 1024) {
+          clips.add(base64Encode(b));
+          debugPrint('✓ Using original video as fallback: ${b.length} bytes');
+          logs.writeln('Fallback: original video (${b.length} bytes)');
+        } else {
+          debugPrint('✗ Original video too large for Gemini: ${b.length} bytes (max 10MB)');
+          logs.writeln('Video too large: ${b.length} bytes > 10MB limit');
+        }
+      } catch (e) {
+        debugPrint('✗ Fallback video read failed: $e');
+        logs.writeln('Fallback video read failed: $e');
       }
     }
-    return results;
-  }
 
-  Future<double> _probeDurationSeconds(String path) async {
-    try {
-      final probeCmd =
-          "-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '${path.replaceAll("'", "'\\''")}'";
-      final session = await FFmpegKit.executeWithArguments(['-hide_banner']);
-      await FFmpegKit.cancel();
-      // Fallback simple duration via file metadata not available; return dummy
-      return 10.0;
-    } catch (_) {
-      return 10.0;
+    final totalBytes = frames.fold<int>(0, (s, e) => s + e.length) + clips.fold<int>(0, (s, e) => s + e.length);
+    final diag = 'in=${inSize}B frames=${frames.length} clips=${clips.length} totalB64=$totalBytes (video_thumbnail)';
+    debugPrint('sampling: $diag');
+    
+    if (frames.isEmpty && clips.isEmpty) {
+      // Include logs in thrown error for Processing screen
+      final short = logs.toString().split('\n').take(20).join('\n');
+      throw Exception('Video processing produced no media.\n$diag\n$short');
     }
+
+    return SamplingResult(
+      framesBase64Jpeg: frames,
+      snippetsBase64Mp4: clips,
+      approxTotalBase64Bytes: totalBytes,
+      diagnostics: diag,
+    );
   }
 }

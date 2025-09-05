@@ -362,6 +362,16 @@ class _RecordScreenState extends State<RecordScreen> {
                 const SizedBox(height: 8),
                 const Text('Tap to start recording'),
               ],
+              // Add upload video button
+              ElevatedButton(
+                onPressed: _uploadVideo,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(120, 50),
+                ),
+                child: const Text('Upload Video'),
+              ),
             ],
           ),
         ),

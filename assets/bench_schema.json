@@ -1,0 +1,29 @@
+{
+  "version": "1.0.0",
+  "notes": "Thresholds and penalties for 2D iPhone bench analysis.",
+  "weights": { "form": 0.5, "intensity": 0.5 },
+  "form": {
+    "cap_per_metric": 12,
+    "metrics": [
+      { "key": "bar_path_drift_cm", "label": "Bar path horizontal drift vs corridor", "unit": "cm", "good_max": 3, "warn_max": 6, "tiers": [ { "gt": 6, "penalty": 12 }, { "gt": 3, "penalty": 6 } ], "weight": 0.18 },
+      { "key": "touch_depth", "label": "Touch behavior at chest", "unit": "qual", "tiers": [ { "label": "firm_touch_or_pause", "penalty": 0 }, { "label": "soft_touch_tng", "penalty": 3 }, { "label": "no_touch", "penalty": 10 }, { "label": "bounce", "penalty": 12 } ], "weight": 0.15 },
+      { "key": "elbow_flare_deg", "label": "Elbow abduction angle at bottom (context: grip)", "unit": "deg", "target_min": 45, "target_max": 70, "tiers": [ { "range": [70, 80], "penalty": 4 }, { "range": [30, 45], "penalty": 4 }, { "gte": 80, "penalty": 8 }, { "lte": 30, "penalty": 8 } ], "weight": 0.12 },
+      { "key": "wrist_extension_deg", "label": "Wrist extension", "unit": "deg", "tiers": [ { "lte": 25, "penalty": 0 }, { "lte": 35, "penalty": 4 }, { "lte": 50, "penalty": 8 }, { "gt": 50, "penalty": 12 } ], "weight": 0.10 },
+      { "key": "scapular_stability", "label": "Scapular retraction/depression maintained", "unit": "flag", "tiers": [ { "label": "maintained", "penalty": 0 }, { "label": "lost", "penalty": 8 } ], "weight": 0.08 },
+      { "key": "hip_lift", "label": "Hips leave bench", "unit": "flag", "tiers": [ { "label": "none", "penalty": 0 }, { "label": "brief", "penalty": 6 }, { "label": "clear_off_bench", "penalty": 12 } ], "weight": 0.10 },
+      { "key": "foot_stability", "label": "Foot contact & stability", "unit": "qual", "tiers": [ { "label": "stable_flat", "penalty": 0 }, { "label": "heel_raise_or_small_shift", "penalty": 3 }, { "label": "foot_moves_or_slips", "penalty": 9 } ], "weight": 0.06 },
+      { "key": "asymmetry", "label": "Bar/lockout asymmetry", "unit": "%_rom_or_ms", "tiers": [ { "lte": 5, "penalty": 0 }, { "lte": 10, "penalty": 4 }, { "lte": 20, "penalty": 8 }, { "gt": 20, "penalty": 12 } ], "weight": 0.07 },
+      { "key": "head_contact", "label": "Head stays on bench", "unit": "flag", "tiers": [ { "label": "on_bench", "penalty": 0 }, { "label": "repeated_lifts", "penalty": 5 } ], "weight": 0.04 }
+    ]
+  },
+  "intensity": {
+    "metrics": [
+      { "key": "velocity_decay_pct", "label": "Percent slowdown (rep-time proxy from first to last)", "unit": "%", "bands": [ { "lte": 10, "score": 5 }, { "lte": 25, "score": 12 }, { "lte": 40, "score": 18 }, { "gt": 40, "score": 20 } ], "weight": 0.5, "max_points": 50 },
+      { "key": "cadence_variance_s", "label": "Std. dev. of rep cycle times", "unit": "s", "bands": [ { "lte": 0.15, "score": 10 }, { "lte": 0.3, "score": 7 }, { "lte": 0.5, "score": 4 }, { "gt": 0.5, "score": 1 } ], "weight": 0.15, "max_points": 15 },
+      { "key": "rom_maintenance_pct_drop", "label": "ROM drop late vs early reps", "unit": "%", "bands": [ { "lte": 0, "score": 10 }, { "lte": 5, "score": 6 }, { "lte": 10, "score": 3 }, { "gt": 10, "score": 0 } ], "weight": 0.25, "max_points": 25 },
+      { "key": "final_rep_grind", "label": "Final concentric time proxy", "unit": "qual", "bands": [ { "label": "grind_very_slow", "score": 10 }, { "label": "moderate", "score": 6 }, { "label": "fast", "score": 2 } ], "weight": 0.10, "max_points": 10 }
+    ]
+  },
+  "holistic": { "formula": "0.5*form + 0.5*intensity", "round": true },
+  "ui": { "blur_subscores_for_free": true, "show_holistic_for_free": true, "percentile_view_premium": true }
+}
