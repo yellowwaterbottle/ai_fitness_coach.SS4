@@ -278,22 +278,18 @@ class _RecordScreenState extends State<RecordScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Capture row: Upload (small) + Capture (large)
+                      // Capture row: Upload (left) + Capture (center) + Spacer (right)
                       SizedBox(
-                        height: 96,
-                        child: Stack(
-                          alignment: Alignment.center,
+                        height: 120,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            // Upload small button (right aligned per your request; choose left if preferred)
-                            Positioned(
-                              right: 6,
-                              child: _SmallCircleButton(
-                                icon: Icons.file_upload_outlined,
-                                label: "Upload",
-                                onTap: _onUploadPressed, // call your existing picker method
-                              ),
+                            // Upload button (left side, more prominent)
+                            _UploadButton(
+                              onTap: _onUploadPressed,
                             ),
-                            // Big capture button
+                            // Big capture button (center)
                             _CaptureButton(
                               isRecording: recordingActive,
                               enabled: canRecord || recordingActive,
@@ -307,6 +303,8 @@ class _RecordScreenState extends State<RecordScreen> {
                                 }
                               },
                             ),
+                            // Spacer to balance layout
+                            const SizedBox(width: 72),
                           ],
                         ),
                       ),
@@ -397,6 +395,53 @@ class _CaptureButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _UploadButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _UploadButton({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(36),
+          child: Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: const Color(0x2AFFFFFF), // More visible background
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white54, width: 2), // Thicker border
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.video_library_outlined,
+              color: Colors.white,
+              size: 32,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Upload\nVideo',
+          textAlign: TextAlign.center,
+          style: AppStyle.caption.copyWith(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }
