@@ -118,29 +118,44 @@ class _MainScoreBreakdownCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-      decoration: BoxDecoration(
-        color: const Color(0x141A2236),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0x1FFFFFFF)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // FORM ROW
-          _SectionHeaderRow(title: "Form", score: resp.form),
-          const SizedBox(height: 10),
-          _SubSectionBarsForm(items: resp.formSubs, overallFallback: resp.form),
-          const SizedBox(height: 18),
-
-          // INTENSITY ROW
-          _SectionHeaderRow(title: "Intensity", score: resp.intensity),
-          const SizedBox(height: 10),
-          _SubSectionBarsIntensity(items: resp.intensitySubs, overallFallback: resp.intensity),
-        ],
-      ),
+    return Column(
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          margin: const EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+            color: const Color(0x141A2236),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0x1FFFFFFF)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionHeaderRow(title: "Form", score: resp.form),
+              const SizedBox(height: 10),
+              _SubSectionBarsForm(items: resp.formSubs, overallFallback: resp.form),
+            ],
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          decoration: BoxDecoration(
+            color: const Color(0x141A2236),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0x1FFFFFFF)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionHeaderRow(title: "Intensity", score: resp.intensity),
+              const SizedBox(height: 10),
+              _SubSectionBarsIntensity(items: resp.intensitySubs, overallFallback: resp.intensity),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
