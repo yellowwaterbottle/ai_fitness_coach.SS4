@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import '../ui/style.dart';
 import '../ui/gradient_ring.dart';
-import '../ui/breakdown_list.dart';
-import '../services/breakdown_mapper.dart';
 import '../models/score_response.dart';
-import '../models/breakdown.dart';
+import '../models/score_labels.dart';
 
 class FeedbackScreen extends StatelessWidget {
   static const routeName = '/feedback';
@@ -14,8 +12,6 @@ class FeedbackScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final ScoreResponse score =
         ModalRoute.of(context)!.settings.arguments as ScoreResponse;
-    final formItems = BreakdownMapper.formFrom(score);
-    final intensityItems = BreakdownMapper.intensityFrom(score);
 
     return Container(
       decoration: const BoxDecoration(gradient: AppStyle.pageBg),
@@ -77,33 +73,9 @@ class FeedbackScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 18),
-
-                  // --- Two columns: Form (left) | Intensity (right) ---
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // FORM
-                      Expanded(
-                        child: _ScoreColumn(
-                          title: "Form",
-                          percent: score.formPercent,
-                          value: score.form,
-                          items: formItems,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      // INTENSITY
-                      Expanded(
-                        child: _ScoreColumn(
-                          title: "Intensity",
-                          percent: score.intensityPercent,
-                          value: score.intensity,
-                          items: intensityItems,
-                        ),
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: 14),
+                  _MainScoreBreakdownCard(resp: score),
+                  const SizedBox(height: 16),
                 ],
 
                 const SizedBox(height: 20),
@@ -140,45 +112,185 @@ class FeedbackScreen extends StatelessWidget {
 
 }
 
-class _ScoreColumn extends StatelessWidget {
-  final String title;
-  final double percent;
-  final int value;
-  final List<BreakdownItem> items;
-  const _ScoreColumn({
-    required this.title,
-    required this.percent,
-    required this.value,
-    required this.items,
-  });
+class _MainScoreBreakdownCard extends StatelessWidget {
+  final ScoreResponse resp;
+  const _MainScoreBreakdownCard({required this.resp});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       decoration: BoxDecoration(
-        color: const Color(0x111A2236),
+        color: const Color(0x141A2236),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0x12FFFFFF)),
+        border: Border.all(color: const Color(0x1FFFFFFF)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header with small ring + title + value
-          Row(
-            children: [
-              GradientRing(
-                size: 44, stroke: 5, percent: percent,
-                center: Text("$value", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
-              ),
-              const SizedBox(width: 10),
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          BreakdownList(items: items),
+          // FORM ROW
+          _SectionHeaderRow(title: "Form", score: resp.form),
+          const SizedBox(height: 10),
+          _SubSectionBarsForm(items: resp.formSubs, overallFallback: resp.form),
+          const SizedBox(height: 18),
+
+          // INTENSITY ROW
+          _SectionHeaderRow(title: "Intensity", score: resp.intensity),
+          const SizedBox(height: 10),
+          _SubSectionBarsIntensity(items: resp.intensitySubs, overallFallback: resp.intensity),
         ],
       ),
+    );
+  }
+}
+
+class _SectionHeaderRow extends StatelessWidget {
+  final String title;
+  final int score;
+  const _SectionHeaderRow({required this.title, required this.score});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+        const Spacer(),
+        _GradientScoreChip(value: score),
+      ],
+    );
+  }
+}
+
+class _GradientScoreChip extends StatelessWidget {
+  final int value;
+  const _GradientScoreChip({required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    const double size = 44;
+    const double ring = 4;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: AppStyle.scoreGradient, // same as Holistic
+        boxShadow: AppStyle.softGlow,
+      ),
+      child: Center(
+        child: Container(
+          width: size - ring*2,
+          height: size - ring*2,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0E1220), // inner fill matches page bg for contrast
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            "$value",
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+              height: 1.0,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubSectionBarsForm extends StatelessWidget {
+  final List<CategoryScore<SubFormKey>> items;
+  final int overallFallback;
+  const _SubSectionBarsForm({required this.items, required this.overallFallback});
+
+  @override
+  Widget build(BuildContext context) {
+    final list = items.isEmpty
+        ? SubFormKey.values.map((k) => CategoryScore(key: k, score: overallFallback)).toList()
+        : items;
+
+    return Column(
+      children: list.map((e) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: _MetricBar(label: kFormLabels[e.key]!, value: e.score / 100.0),
+      )).toList(),
+    );
+  }
+}
+
+class _SubSectionBarsIntensity extends StatelessWidget {
+  final List<CategoryScore<SubIntensityKey>> items;
+  final int overallFallback;
+  const _SubSectionBarsIntensity({required this.items, required this.overallFallback});
+
+  @override
+  Widget build(BuildContext context) {
+    final list = items.isEmpty
+        ? SubIntensityKey.values.map((k) => CategoryScore(key: k, score: overallFallback)).toList()
+        : items;
+
+    return Column(
+      children: list.map((e) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: _MetricBar(label: kIntensityLabels[e.key]!, value: e.score / 100.0),
+      )).toList(),
+    );
+  }
+}
+
+class _MetricBar extends StatelessWidget {
+  final String label;
+  final double value; // 0..1
+  const _MetricBar({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value.clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, overflow: TextOverflow.ellipsis, maxLines: 1,
+          style: const TextStyle(color: Color(0xFFB7C2D0), fontSize: 12, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        LayoutBuilder(
+          builder: (context, c) {
+            final w = c.maxWidth;
+            return Stack(
+              children: [
+                // Track
+                Container(
+                  height: 10,
+                  width: w,
+                  decoration: BoxDecoration(
+                    color: const Color(0x1FFFFFFF),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                ),
+                // Fill with score gradient
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 280),
+                  height: 10,
+                  width: w * v,
+                  decoration: BoxDecoration(
+                    gradient: AppStyle.scoreGradient, // use shared gradient
+                    borderRadius: BorderRadius.circular(100),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x405EEAD4), blurRadius: 10, spreadRadius: 0), // teal-ish
+                      BoxShadow(color: Color(0x407C3AED), blurRadius: 12, spreadRadius: 0), // purple-ish
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 }

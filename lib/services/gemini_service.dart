@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import '../models/score_response.dart';
+import '../models/score_labels.dart';
 
 class PayloadTooLarge implements Exception {
   final String msg;
@@ -71,6 +72,62 @@ FailureInfo _parseFailure(Map<String, dynamic> m) {
   }
 
   return FailureInfo(status: status, reasons: reasons, rationale: rationale);
+}
+
+ScoreResponse parseScoreOk(Map<String, dynamic> m) {
+  final scores = (m['scores'] ?? {}) as Map<String, dynamic>;
+  int holistic = (scores['holistic'] ?? 0).round();
+  int form = (scores['form'] ?? 0).round();
+  int intensity = (scores['intensity'] ?? 0).round();
+
+  // Form subs
+  final fs = <CategoryScore<SubFormKey>>[];
+  final fm = (m['form_subscores'] ?? {}) as Map<String, dynamic>;
+  if (fm.isNotEmpty) {
+    fs.add(CategoryScore(key: SubFormKey.bar_path, score: (fm['bar_path'] ?? 0).round()));
+    fs.add(CategoryScore(key: SubFormKey.range_of_motion, score: (fm['range_of_motion'] ?? 0).round()));
+    fs.add(CategoryScore(key: SubFormKey.stability, score: (fm['stability'] ?? 0).round()));
+    fs.add(CategoryScore(key: SubFormKey.elbow_wrist, score: (fm['elbow_wrist'] ?? 0).round()));
+    fs.add(CategoryScore(key: SubFormKey.leg_drive, score: (fm['leg_drive'] ?? 0).round()));
+    form = weightedForm(fs);
+  }
+
+  // Intensity subs
+  final isubs = <CategoryScore<SubIntensityKey>>[];
+  final im = (m['intensity_subscores'] ?? {}) as Map<String, dynamic>;
+  if (im.isNotEmpty) {
+    isubs.add(CategoryScore(key: SubIntensityKey.power, score: (im['power'] ?? 0).round()));
+    isubs.add(CategoryScore(key: SubIntensityKey.uniformity, score: (im['uniformity'] ?? 0).round()));
+    isubs.add(CategoryScore(key: SubIntensityKey.proximity_failure, score: (im['proximity_failure'] ?? 0).round()));
+    isubs.add(CategoryScore(key: SubIntensityKey.cadence, score: (im['cadence'] ?? 0).round()));
+    isubs.add(CategoryScore(key: SubIntensityKey.bar_speed_consistency, score: (im['bar_speed_consistency'] ?? 0).round()));
+    intensity = weightedIntensity(isubs);
+  }
+
+  // Extract details
+  final details = (m['details'] ?? {}) as Map<String, dynamic>;
+  final issues = ((details['issues'] as List?) ?? const [])
+      .whereType<Map<String, dynamic>>()
+      .map((issue) => IssueItem.fromJson(issue))
+      .toList();
+  final cues = ((details['cues'] as List?) ?? const [])
+      .map((e) => e.toString())
+      .toList();
+
+  // If holistic missing, compute default 0.5/0.5
+  if (holistic == 0 && (form > 0 || intensity > 0)) {
+    holistic = ((form + intensity) / 2).round();
+  }
+
+  return ScoreResponse.success(
+    holistic: holistic.clamp(0, 100),
+    form: form.clamp(0, 100),
+    intensity: intensity.clamp(0, 100),
+    issues: issues,
+    cues: cues,
+    formSubs: fs,
+    intensitySubs: isubs,
+  );
 }
 
 class GeminiService {
@@ -161,11 +218,28 @@ When status="ok", include scores and continue with the normal scoring output:
     "intensity": score_0_to_100,
     "holistic": score_0_to_100
   },
+  "form_subscores": {
+    "bar_path": number,
+    "range_of_motion": number,
+    "stability": number,
+    "elbow_wrist": number,
+    "leg_drive": number
+  },
+  "intensity_subscores": {
+    "power": number,
+    "uniformity": number,
+    "proximity_failure": number,
+    "cadence": number,
+    "bar_speed_consistency": number
+  },
   "details": {
     "issues": ["specific_technical_issues"],
     "cues": ["actionable_coaching_advice"]
   }
 }
+
+Overall "form" should be the evenly weighted mean (0.20 each) of the 5 form_subscores.
+Overall "intensity" should be the evenly weighted mean (0.20 each) of the 5 intensity_subscores.
 
 Return JSON only, no explanation.'''
         },
@@ -253,20 +327,8 @@ Return JSON only, no explanation.'''
         debugPrint("Gemini returned failure: status=$status, reasons=${failure.reasons}");
         return ScoreResponse.failure(failure);
       } else {
-        // Parse success - extract scores from nested structure
-        final scores = payload['scores'] as Map<String, dynamic>? ?? {};
-        final details = payload['details'] as Map<String, dynamic>? ?? {};
-        
-        // Create a flattened structure for the existing fromGeminiJson parser
-        final flatPayload = <String, dynamic>{
-          'form': scores['form'] ?? 0,
-          'intensity': scores['intensity'] ?? 0,
-          'holistic': scores['holistic'] ?? 0,
-          'issues': details['issues'] ?? [],
-          'cues': details['cues'] ?? [],
-        };
-        
-        final result = ScoreResponse.fromGeminiJson(flatPayload).recomputeHolistic();
+        // Parse success using new sub-score aware parser
+        final result = parseScoreOk(payload);
         debugPrint("Gemini returned: form=${result.form}, intensity=${result.intensity}, holistic=${result.holistic}");
         return result;
       }

@@ -1,6 +1,29 @@
 import 'dart:convert';
 import 'breakdown.dart';
 
+// --- Sub-score keys (NEW TERMINOLOGY) ---
+enum SubFormKey {
+  bar_path,
+  range_of_motion,
+  stability,
+  elbow_wrist,
+  leg_drive,
+}
+
+enum SubIntensityKey {
+  power,
+  uniformity,
+  proximity_failure,
+  cadence,
+  bar_speed_consistency,
+}
+
+class CategoryScore<T> {
+  final T key;
+  final int score; // 0..100
+  const CategoryScore({required this.key, required this.score});
+}
+
 enum AnalysisStatus { ok, no_set, insufficient }
 
 enum FailReason {
@@ -85,6 +108,10 @@ class ScoreResponse {
   final List<String> insufficientReasons;
   final List<BreakdownItem>? formBreakdown;
   final List<BreakdownItem>? intensityBreakdown;
+  
+  // NEW: sub-scores
+  final List<CategoryScore<SubFormKey>> formSubs;
+  final List<CategoryScore<SubIntensityKey>> intensitySubs;
 
   ScoreResponse({
     required this.success,
@@ -98,6 +125,8 @@ class ScoreResponse {
     required this.insufficientReasons,
     this.formBreakdown,
     this.intensityBreakdown,
+    this.formSubs = const [],
+    this.intensitySubs = const [],
   });
 
   ScoreResponse.success({
@@ -108,6 +137,8 @@ class ScoreResponse {
     required this.cues,
     this.formBreakdown,
     this.intensityBreakdown,
+    this.formSubs = const [],
+    this.intensitySubs = const [],
   }) : success = true,
        failure = null,
        insufficient = false,
@@ -123,7 +154,9 @@ class ScoreResponse {
         insufficient = true,
         insufficientReasons = const [],
         formBreakdown = null,
-        intensityBreakdown = null;
+        intensityBreakdown = null,
+        formSubs = const [],
+        intensitySubs = const [];
 
   static int _clampScore(num value) {
     final intVal = value.round();
@@ -245,6 +278,8 @@ class ScoreResponse {
     List<String>? insufficientReasons,
     List<BreakdownItem>? formBreakdown,
     List<BreakdownItem>? intensityBreakdown,
+    List<CategoryScore<SubFormKey>>? formSubs,
+    List<CategoryScore<SubIntensityKey>>? intensitySubs,
   }) {
     return ScoreResponse(
       success: success ?? this.success,
@@ -258,6 +293,8 @@ class ScoreResponse {
       insufficientReasons: insufficientReasons ?? this.insufficientReasons,
       formBreakdown: formBreakdown ?? this.formBreakdown,
       intensityBreakdown: intensityBreakdown ?? this.intensityBreakdown,
+      formSubs: formSubs ?? this.formSubs,
+      intensitySubs: intensitySubs ?? this.intensitySubs,
     );
   }
 

@@ -27,6 +27,13 @@ class AppStyle {
     end: Alignment.bottomRight,
   );
 
+  // Score gradient (matches Holistic circle)
+  static const LinearGradient scoreGradient = LinearGradient(
+    colors: [Color(0xFF7C3AED), Color(0xFF5EEAD4)], // purple → teal (match Holistic)
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
   static const Gradient pageBg = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
