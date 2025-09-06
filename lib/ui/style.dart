@@ -31,8 +31,25 @@ class AppStyle {
   static TextStyle get caption =>
       const TextStyle(color: textSecondary, fontSize: 13, fontWeight: FontWeight.w500);
 
+  static TextStyle get hero =>
+      const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, height: 1.15);
+
+  static TextStyle get sub =>
+      const TextStyle(color: Color(0xFFB7C2D0), fontSize: 14, fontWeight: FontWeight.w500);
+
+  static BoxDecoration get glassCard => BoxDecoration(
+    color: const Color(0x141A2236),
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(color: const Color(0x1FFFFFFF)),
+  );
+
   static List<BoxShadow> get glow => [
     BoxShadow(color: const Color(0x805EEAD4), blurRadius: 24, spreadRadius: 2),
     BoxShadow(color: const Color(0x407C3AED), blurRadius: 16, spreadRadius: 1),
+  ];
+
+  static List<BoxShadow> get softGlow => [
+    const BoxShadow(color: Color(0x405EEAD4), blurRadius: 32, spreadRadius: 2),
+    const BoxShadow(color: Color(0x407C3AED), blurRadius: 16, spreadRadius: 1),
   ];
 }

@@ -180,10 +180,6 @@ class _RecordScreenState extends State<RecordScreen> {
         final tempFile = await sourceFile.copy(tempPath);
         
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Video uploaded: $fileName')),
-          );
-          
           Navigator.pushNamed(
             context,
             '/processing',
@@ -194,7 +190,7 @@ class _RecordScreenState extends State<RecordScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to upload video: $e')),
+          const SnackBar(content: Text('Failed to upload video. Please try again.')),
         );
       }
     }
@@ -236,96 +232,51 @@ class _RecordScreenState extends State<RecordScreen> {
     return Container(
       decoration: const BoxDecoration(gradient: AppStyle.pageBg),
       child: SafeArea(
-        bottom: false,
+        bottom: true,
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          body: Stack(
-            children: [
-              // --- Top status chip ---
-              Positioned(
-                top: 12,
-                left: 0,
-                right: 0,
-                child: Center(child: _StatusChip(ok: true)),
-              ),
+          body: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Top status chip (small and subtle)
+                const SizedBox(height: 8),
+                Center(child: _StatusChip(ok: true)),
+                const SizedBox(height: 18),
 
-              // --- Center instruction text ---
-              Align(
-                alignment: Alignment.center,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "Tap to record a short video\nof your lift.",
-                        textAlign: TextAlign.center,
-                        style: AppStyle.title,
-                      ),
-                    ],
+                // Hero text
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text("Tap to record a short video\nof your lift.", style: AppStyle.hero, textAlign: TextAlign.center),
+                        const SizedBox(height: 10),
+                        Text("Portrait. Full body & bar in frame.\nGood lighting helps analysis.",
+                            style: AppStyle.sub, textAlign: TextAlign.center),
+                      ],
+                    ),
                   ),
                 ),
-              ),
 
-              // --- Bottom capture area & nav ---
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: 24, right: 24,
-                    bottom: MediaQuery.of(context).padding.bottom + 12,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Capture row: Upload (left) + Capture (center) + Spacer (right)
-                      SizedBox(
-                        height: 120,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            // Upload button (left side, more prominent)
-                            _UploadButton(
-                              onTap: _onUploadPressed,
-                            ),
-                            // Big capture button (center)
-                            _CaptureButton(
-                              isRecording: recordingActive,
-                              enabled: canRecord || recordingActive,
-                              onTap: () {
-                                if (recordingActive) {
-                                  _stopRecording();
-                                } else if (canRecord) {
-                                  _startRecording();
-                                } else {
-                                  _showSnack("Camera not available — use Upload");
-                                }
-                              },
-                            ),
-                            // Spacer to balance layout
-                            const SizedBox(width: 72),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      // Bottom nav
-                      _BottomNav(
-                        index: 0, // Scan
-                        onTap: (i) {
-                          // TODO: wire to your tab routing.
-                          // 0 = Scan (this)
-                          // 1 = Progress
-                          // 2 = Coach
-                          if (i == 1) Navigator.pushNamed(context, '/progress');
-                          if (i == 2) Navigator.pushNamed(context, '/coach');
-                        },
-                      ),
-                    ],
-                  ),
+                // Action area (no bottom nav)
+                _ActionBar(
+                  canRecord: canRecord || recordingActive,
+                  recording: recordingActive,
+                  onRecord: () {
+                    if (recordingActive) {
+                      _stopRecording();
+                    } else if (canRecord) {
+                      _startRecording();
+                    } else {
+                      _showSnack("Camera not available — try Upload Video");
+                    }
+                  },
+                  onUpload: _onUploadPressed, // call your existing picker/upload flow
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -354,13 +305,40 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(6),
+      width: 28, height: 28,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: AppStyle.chipFill,
         border: Border.all(color: AppStyle.chipBorder, width: 1),
+        boxShadow: AppStyle.softGlow,
       ),
       child: Icon(ok ? Icons.check : Icons.info, size: 16, color: const Color(0xFF7CF29A)),
+    );
+  }
+}
+
+class _ActionBar extends StatelessWidget {
+  final bool canRecord;
+  final bool recording;
+  final VoidCallback onRecord;
+  final VoidCallback onUpload;
+  const _ActionBar({
+    required this.canRecord,
+    required this.recording,
+    required this.onRecord,
+    required this.onUpload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Primary: big circular gradient record button centered
+        _CaptureButton(isRecording: recording, enabled: canRecord, onTap: onRecord),
+        const SizedBox(height: 16),
+        // Secondary: elegant Upload pill button
+        _UploadButton(onTap: onUpload),
+      ],
     );
   }
 }
@@ -372,22 +350,22 @@ class _CaptureButton extends StatelessWidget {
   const _CaptureButton({required this.isRecording, required this.enabled, required this.onTap});
   @override
   Widget build(BuildContext context) {
-    final double size = 92;
+    const double size = 108;
     return GestureDetector(
       onTap: enabled ? onTap : null,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 160),
         width: size, height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: enabled ? AppStyle.captureGradient : const LinearGradient(colors: [Colors.grey, Colors.grey]),
-          boxShadow: enabled ? AppStyle.glow : [],
+          boxShadow: AppStyle.softGlow,
         ),
         child: Center(
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: isRecording ? 28 : 44,
-            height: isRecording ? 28 : 44,
+            duration: const Duration(milliseconds: 160),
+            width: isRecording ? 30 : 48,
+            height: isRecording ? 30 : 48,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(isRecording ? 6 : 999),
@@ -404,98 +382,22 @@ class _UploadButton extends StatelessWidget {
   const _UploadButton({required this.onTap});
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(36),
-          child: Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: const Color(0x2AFFFFFF), // More visible background
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white54, width: 2), // Thicker border
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.video_library_outlined,
-              color: Colors.white,
-              size: 32,
-            ),
-          ),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        decoration: AppStyle.glassCard.copyWith(
+          boxShadow: AppStyle.softGlow,
         ),
-        const SizedBox(height: 8),
-        Text(
-          'Upload\nVideo',
-          textAlign: TextAlign.center,
-          style: AppStyle.caption.copyWith(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.file_upload_outlined, color: Colors.white),
+            SizedBox(width: 8),
+            Text("Upload Video", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ],
         ),
-      ],
-    );
-  }
-}
-
-class _SmallCircleButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _SmallCircleButton({required this.icon, required this.label, required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(28),
-          child: Container(
-            width: 56, height: 56,
-            decoration: BoxDecoration(
-              color: const Color(0x1AFFFFFF),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white24),
-            ),
-            child: Icon(icon, color: Colors.white, size: 26),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(label, style: AppStyle.caption),
-      ],
-    );
-  }
-}
-
-class _BottomNav extends StatelessWidget {
-  final int index;
-  final ValueChanged<int> onTap;
-  const _BottomNav({required this.index, required this.onTap});
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BottomNavigationBar(
-        currentIndex: index,
-        onTap: onTap,
-        backgroundColor: const Color(0xFF11162A),
-        selectedItemColor: Colors.white,
-        unselectedItemColor: Colors.white70,
-        showUnselectedLabels: true,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.collections_bookmark), label: 'Scan'),
-          BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Progress'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Coach'),
-        ],
       ),
     );
   }
