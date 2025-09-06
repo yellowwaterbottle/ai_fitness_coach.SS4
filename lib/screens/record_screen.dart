@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,7 +18,7 @@ class RecordScreen extends StatefulWidget {
   State<RecordScreen> createState() => _RecordScreenState();
 }
 
-class _RecordScreenState extends State<RecordScreen> {
+class _RecordScreenState extends State<RecordScreen> with TickerProviderStateMixin {
   CameraController? _controller;
   late Future<void> _cameraInit;
   bool _noCamera = false;
@@ -28,9 +29,54 @@ class _RecordScreenState extends State<RecordScreen> {
   Timer? _elapsedTimer;
   int _elapsedSeconds = 0;
 
+  // Progress ring for recording
+  static const Duration kMaxRecordDuration = Duration(minutes: 2);     // real cap (auto-stop)
+  static const Duration kProgressRingDuration = Duration(seconds: 16); // visual speed (2.5× faster than 40s)
+  late AnimationController _recAnim;     // 0..1 over kProgressRingDuration
+  late AnimationController _fadeAnim;    // 0..1 for fade-out at lap end (~220ms)
+  double _recProgress = 0.0;
+  double _ringOpacity = 1.0;
+  Timer? _autoStopTimer;               // enforces 2:00 cap
+  bool _animsInitialized = false;
+
   @override
   void initState() {
     super.initState();
+    
+    if (!_animsInitialized) {
+      _recAnim = AnimationController(vsync: this, duration: kProgressRingDuration)
+        ..addListener(() {
+          if (mounted) setState(() => _recProgress = _recAnim.value);
+        })
+        ..addStatusListener((status) async {
+          if (!mounted) return;
+          if (status == AnimationStatus.completed && _recording) {
+            // Start fade-out at lap end
+            _fadeAnim
+              ..reset()
+              ..forward();
+          }
+        });
+
+      _fadeAnim = AnimationController(vsync: this, duration: const Duration(milliseconds: 220))
+        ..addListener(() {
+          if (mounted) setState(() => _ringOpacity = 1.0 - _fadeAnim.value);
+        })
+        ..addStatusListener((status) {
+          if (!mounted) return;
+          if (status == AnimationStatus.completed && _recording) {
+            // After fade completes, reset opacity and restart a fresh lap
+            _ringOpacity = 1.0;
+            _recAnim
+              ..reset()
+              ..forward();
+            setState(() {});
+          }
+        });
+
+      _animsInitialized = true;
+    }
+
     _init();
   }
 
@@ -78,6 +124,9 @@ class _RecordScreenState extends State<RecordScreen> {
 
   @override
   void dispose() {
+    _autoStopTimer?.cancel();
+    _fadeAnim.dispose();
+    _recAnim.dispose();
     _cap?.cancel();
     _elapsedTimer?.cancel();
     _controller?.dispose();
@@ -93,6 +142,19 @@ class _RecordScreenState extends State<RecordScreen> {
         _recording = true;
         _start = DateTime.now();
         _elapsedSeconds = 0;
+        _ringOpacity = 1.0;
+        _recProgress = 0.0;
+      });
+      _fadeAnim.reset();
+      _recAnim
+        ..reset()
+        ..forward();
+      // Auto-stop guard at the real 2:00 cap
+      _autoStopTimer?.cancel();
+      _autoStopTimer = Timer(kMaxRecordDuration, () async {
+        if (mounted && _recording) {
+          await _stopRecording();
+        }
       });
 
       // Start elapsed timer
@@ -102,10 +164,7 @@ class _RecordScreenState extends State<RecordScreen> {
         });
       });
 
-      // Auto-stop at 120 seconds
-      _cap = Timer(const Duration(seconds: 120), () {
-        _stopRecording();
-      });
+      // Auto-stop handled by animation controller at 2:00 mark
     } catch (e) {
       setState(() => _recording = false);
     }
@@ -120,10 +179,17 @@ class _RecordScreenState extends State<RecordScreen> {
       
       final file = await _controller!.stopVideoRecording();
       
+      _autoStopTimer?.cancel();
+      _autoStopTimer = null;
+
+      _recAnim.stop();
+      _fadeAnim.stop();
       setState(() {
         _recording = false;
         _start = null;
         _elapsedSeconds = 0;
+        _ringOpacity = 0.0;  // hide immediately on stop
+        _recProgress = 0.0;
       });
 
       // Navigate to processing
@@ -133,6 +199,9 @@ class _RecordScreenState extends State<RecordScreen> {
           '/processing',
           arguments: {'videoPath': file.path},
         );
+        // After navigating, reset visuals:
+        _recAnim.reset();
+        setState(() => _recProgress = 0.0);
       }
     } catch (e) {
       setState(() => _recording = false);
@@ -232,6 +301,7 @@ class _RecordScreenState extends State<RecordScreen> {
   @override
   Widget build(BuildContext context) {
     final canRecord = _controllerReady && !_recording;
+    const double kUploadButtonHeight = 52; // visual height incl. padding
 
     return Container(
       decoration: const BoxDecoration(gradient: AppStyle.pageBg), // fallback if preview not ready
@@ -274,11 +344,6 @@ class _RecordScreenState extends State<RecordScreen> {
                 ),
               ),
 
-              // 2) Top status chip (unchanged)
-              const Positioned(
-                top: 10, left: 0, right: 0,
-                child: Center(child: _StatusChip(ok: true)),
-              ),
 
               // 3) Center hero text (hide while recording)
               if (!_recording)
@@ -303,30 +368,39 @@ class _RecordScreenState extends State<RecordScreen> {
                   ),
                 ),
 
-              // 4) Bottom actions (upload hidden while recording)
+              // 4) Bottom actions: capture is fixed; we reserve space for Upload when hidden
               Positioned(
-                left: 20, right: 20,
+                left: 20,
+                right: 20,
+                // Keep a fixed bottom offset for the capture button, independent of upload visibility.
+                bottom: MediaQuery.of(context).padding.bottom + 18 + kUploadButtonHeight + 14,
+                child: _CaptureButton(
+                  isRecording: _recording,
+                  enabled: (_controllerReady && !_recording) || _recording,
+                  onTap: () async {
+                    if (_recording) {
+                      await _stopRecording();
+                    } else if (_controllerReady) {
+                      await _startRecording();
+                    } else {
+                      _showSnack("Camera not available — try Upload Video");
+                    }
+                  },
+                  progress: _recording ? _recProgress : 0.0,
+                  ringOpacity: _ringOpacity,
+                ),
+              ),
+
+              // Upload area pinned to the very bottom; when recording we keep a transparent spacer
+              Positioned(
+                left: 20,
+                right: 20,
                 bottom: MediaQuery.of(context).padding.bottom + 18,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _CaptureButton(
-                      isRecording: _recording,
-                      enabled: canRecord || _recording,
-                      onTap: () async {
-                        if (_recording) {
-                          await _stopRecording();
-                        } else if (canRecord) {
-                          await _startRecording();
-                        } else {
-                          _showSnack("Camera not available — try Upload Video");
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    if (!_recording)
-                      _UploadButton(onTap: _onUploadPressed),
-                  ],
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  child: _recording
+                      ? SizedBox(height: kUploadButtonHeight) // spacer to preserve layout
+                      : _UploadButton(onTap: _onUploadPressed),
                 ),
               ),
             ],
@@ -352,77 +426,66 @@ class _RecordScreenState extends State<RecordScreen> {
 }
 
 // --- UI Helpers ---
-class _StatusChip extends StatelessWidget {
-  final bool ok;
-  const _StatusChip({required this.ok});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 28, height: 28,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: AppStyle.chipFill,
-        border: Border.all(color: AppStyle.chipBorder, width: 1),
-        boxShadow: AppStyle.softGlow,
-      ),
-      child: Icon(ok ? Icons.check : Icons.info, size: 16, color: const Color(0xFF7CF29A)),
-    );
-  }
-}
 
 
 class _CaptureButton extends StatelessWidget {
   final bool isRecording;
   final bool enabled;
   final VoidCallback onTap;
-  const _CaptureButton({required this.isRecording, required this.enabled, required this.onTap});
+  final double progress; // 0..1
+  final double ringOpacity; // 0..1 (fades at lap end)
+  const _CaptureButton({
+    required this.isRecording,
+    required this.enabled,
+    required this.onTap,
+    required this.progress,
+    required this.ringOpacity,
+  });
 
   @override
   Widget build(BuildContext context) {
-    const double size = 108;
+    const double size = 108.0;
+    const double strokeW = 5.0;
+
+    // We wrap the button with CustomPaint.foregroundPainter so the red arc renders ON TOP.
     return GestureDetector(
       onTap: enabled ? onTap : null,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // RED RECORD RING overlay when recording
-          AnimatedOpacity(
-            opacity: isRecording ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 180),
-            child: Container(
-              width: size + 18, height: size + 18,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(
+          foregroundPainter: _ProgressRingPainter(
+            progress: progress,
+            strokeWidth: strokeW,
+            color: const Color(0xFFFF4D4D).withOpacity(ringOpacity.clamp(0.0, 1.0)),
+          ),
+          child: Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              width: size,
+              height: size,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFFF4D4D), width: 3),
-                boxShadow: const [
-                  BoxShadow(color: Color(0x33FF4D4D), blurRadius: 22, spreadRadius: 2),
-                ],
+                gradient: enabled
+                    ? AppStyle.captureGradient
+                    : const LinearGradient(colors: [Colors.grey, Colors.grey]),
+                boxShadow: AppStyle.softGlow,
               ),
-            ),
-          ),
-          // Gradient main button
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            width: size, height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: enabled
-                  ? AppStyle.captureGradient
-                  : const LinearGradient(colors: [Colors.grey, Colors.grey]),
-              boxShadow: AppStyle.softGlow,
-            ),
-            child: Center(
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: 48, height: 48,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(isRecording ? 8 : 999),
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    // circle (idle) → square (stop) when recording
+                    borderRadius: BorderRadius.circular(isRecording ? 8 : 999),
+                  ),
                 ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -452,4 +515,47 @@ class _UploadButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ProgressRingPainter extends CustomPainter {
+  final double progress;    // 0..1
+  final double strokeWidth;
+  final Color color;
+  _ProgressRingPainter({
+    required this.progress,
+    required this.strokeWidth,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0 || color.opacity == 0) return;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.shortestSide - strokeWidth) / 2;
+
+    // Start at 12 o'clock (−π/2), clockwise sweep
+    final start = -math.pi / 2;
+    final sweep = 2 * math.pi * progress;
+
+    final red = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = strokeWidth
+      ..color = color;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      start,
+      sweep,
+      false,
+      red,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ProgressRingPainter old) =>
+      old.progress != progress ||
+      old.strokeWidth != strokeWidth ||
+      old.color != color;
 }
