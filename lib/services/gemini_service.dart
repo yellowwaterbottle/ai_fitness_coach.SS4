@@ -25,6 +25,54 @@ Future<String> _loadSchema() async {
   return await rootBundle.loadString('assets/bench_schema.json');
 }
 
+FailureInfo _parseFailure(Map<String, dynamic> m) {
+  final statusStr = (m['status'] as String).trim();
+  final status = statusStr == 'no_set'
+      ? AnalysisStatus.no_set
+      : AnalysisStatus.insufficient;
+
+  final reasons = <FailReason>[];
+  final rationale = <FailReason, String>{};
+
+  if (status == AnalysisStatus.insufficient) {
+    final List<dynamic> arr = (m['fail_reasons'] ?? []) as List<dynamic>;
+    for (final r in arr) {
+      switch ((r as String).trim()) {
+        case 'poor_lighting': reasons.add(FailReason.poor_lighting); break;
+        case 'subject_out_of_frame': reasons.add(FailReason.subject_out_of_frame); break;
+        case 'camera_motion': reasons.add(FailReason.camera_motion); break;
+        case 'too_short_clip': reasons.add(FailReason.too_short_clip); break;
+        case 'blurry_frames': reasons.add(FailReason.blurry_frames); break;
+        case 'wrong_orientation': reasons.add(FailReason.wrong_orientation); break;
+        case 'occlusions': reasons.add(FailReason.occlusions); break;
+        case 'bar_not_visible': reasons.add(FailReason.bar_not_visible); break;
+        case 'multiple_people': reasons.add(FailReason.multiple_people); break;
+        case 'file_corrupt': reasons.add(FailReason.file_corrupt); break;
+      }
+    }
+    final Map<String, dynamic> rat = (m['rationale'] ?? {}) as Map<String, dynamic>;
+    for (final e in rat.entries) {
+      final key = e.key.trim();
+      final val = e.value.toString();
+      final fr = {
+        'poor_lighting': FailReason.poor_lighting,
+        'subject_out_of_frame': FailReason.subject_out_of_frame,
+        'camera_motion': FailReason.camera_motion,
+        'too_short_clip': FailReason.too_short_clip,
+        'blurry_frames': FailReason.blurry_frames,
+        'wrong_orientation': FailReason.wrong_orientation,
+        'occlusions': FailReason.occlusions,
+        'bar_not_visible': FailReason.bar_not_visible,
+        'multiple_people': FailReason.multiple_people,
+        'file_corrupt': FailReason.file_corrupt,
+      }[key];
+      if (fr != null) rationale[fr] = val;
+    }
+  }
+
+  return FailureInfo(status: status, reasons: reasons, rationale: rationale);
+}
+
 class GeminiService {
 
   static Future<ScoreResponse> analyze({
@@ -36,8 +84,8 @@ class GeminiService {
     if (kFakeAnalysis) {
       debugPrint("Using fake analysis - returning dummy score");
       await Future.delayed(const Duration(milliseconds: 800));
-      return ScoreResponse(
-        holistic: 78, form: 74, intensity: 82, insufficient: false, issues: [], cues: [], insufficientReasons: []
+      return ScoreResponse.success(
+        holistic: 78, form: 74, intensity: 82, issues: [], cues: []
       ).recomputeHolistic();
     }
 
@@ -49,16 +97,77 @@ class GeminiService {
       throw Exception('GEMINI_API_KEY missing. Run with --dart-define=GEMINI_API_KEY=YOUR_KEY');
     }
 
-    // Load rubric and schema for accurate scoring
-    final rubric = await _loadRubric();
-    final schema = await _loadSchema();
+    // Load rubric and schema for accurate scoring (available for future use)
+    // final rubric = await _loadRubric();
+    // final schema = await _loadSchema();
 
     Future<ScoreResponse> _call(List<String> imgs, List<String> clips, {bool strict = false}) async {
       debugPrint("Using consistent rubric-based scoring for maximum accuracy");
       
       final parts = <Map<String, dynamic>>[
         {
-          "text": "You are an expert powerlifting judge analyzing bench press technique. Analyze the provided frames/video thoroughly.\n\nSCORING GUIDELINES:\n- Form (0-100): Bar path, pause, grip width, arch, leg drive, stability\n- Intensity (0-100): Weight relative to lifter, effort level, speed, control\n- Holistic (0-100): Overall performance quality\n\nProvide VARIED, REALISTIC scores based on what you observe:\n- Beginners: 60-75 range\n- Intermediate: 75-85 range  \n- Advanced: 85-95 range\n\nEvaluate EACH video independently. Different videos should produce different scores.\n\nReturn ONLY valid JSON:\n{\n  \"form\": score_0_to_100,\n  \"intensity\": score_0_to_100,\n  \"holistic\": score_0_to_100,\n  \"insufficient\": false,\n  \"issues\": [\"specific_technical_issues\"],\n  \"cues\": [\"actionable_coaching_advice\"]\n}"
+          "text": '''You are an expert powerlifting judge analyzing bench press technique.
+
+Return ONLY valid JSON that conforms to this schema:
+{
+  "status": "ok" | "no_set" | "insufficient",
+  "fail_reasons": string[] (only when status="insufficient"),
+  "rationale": { string: string } (map from reason code to the exact scripted sentence),
+  "scores": { "holistic": number, "form": number, "intensity": number } (when status="ok"),
+  "details": { ... } (optional extra)
+}
+
+Reason codes (enums):
+- "poor_lighting"
+- "subject_out_of_frame"
+- "camera_motion"
+- "too_short_clip"
+- "blurry_frames"
+- "wrong_orientation"
+- "occlusions"
+- "bar_not_visible"
+- "multiple_people"
+- "file_corrupt"
+
+If no training set is detected (e.g., no bench press reps), respond with:
+{ "status": "no_set" }
+
+If conditions are insufficient, respond with:
+{
+  "status": "insufficient",
+  "fail_reasons": ["<one or more enums>"],
+  "rationale": {
+     "<reason>": "<exact canonical sentence below>"
+  }
+}
+
+Canonical rationale strings (use verbatim):
+- poor_lighting: "Video failed due to poor lighting."
+- subject_out_of_frame: "Lifter and/or barbell not fully visible in frame."
+- camera_motion: "Camera moved too much during the set."
+- too_short_clip: "Clip is too short to analyze a set."
+- blurry_frames: "Video is too blurry for reliable analysis."
+- wrong_orientation: "Video orientation is not portrait."
+- occlusions: "Lifter or barbell is blocked from view."
+- bar_not_visible: "Barbell is not visible enough to analyze bar path."
+- multiple_people: "Multiple people in frame caused ambiguity."
+- file_corrupt: "Video file couldn't be decoded."
+
+When status="ok", include scores and continue with the normal scoring output:
+{
+  "status": "ok",
+  "scores": {
+    "form": score_0_to_100,
+    "intensity": score_0_to_100,
+    "holistic": score_0_to_100
+  },
+  "details": {
+    "issues": ["specific_technical_issues"],
+    "cues": ["actionable_coaching_advice"]
+  }
+}
+
+Return JSON only, no explanation.'''
         },
       ];
       for (final b64 in imgs) {
@@ -102,10 +211,15 @@ class GeminiService {
       final map = jsonDecode(resp.body) as Map<String, dynamic>;
       final pf = map["promptFeedback"];
       if (pf != null && pf is Map && pf["safetyRatings"] != null) {
-        return ScoreResponse(
-          holistic: 60, form: 60, intensity: 60, insufficient: true,
-          issues: [], cues: ["View/lighting/angle insufficient. Use 45° front-side, full body & bar, brighter light."], insufficientReasons: []
-        ).recomputeHolistic();
+        final failure = FailureInfo(
+          status: AnalysisStatus.insufficient,
+          reasons: [FailReason.poor_lighting, FailReason.subject_out_of_frame],
+          rationale: {
+            FailReason.poor_lighting: "Video failed due to poor lighting.",
+            FailReason.subject_out_of_frame: "Lifter and/or barbell not fully visible in frame.",
+          },
+        );
+        return ScoreResponse.failure(failure);
       }
 
       final candidates = (map["candidates"] as List?) ?? const [];
@@ -129,9 +243,33 @@ class GeminiService {
       } catch (e) {
         throw Exception("JSON parse failed: ${e.toString().split('\n').first}");
       }
-      final result = ScoreResponse.fromGeminiJson(payload).recomputeHolistic();
-      debugPrint("Gemini returned: form=${result.form}, intensity=${result.intensity}, holistic=${result.holistic}");
-      return result;
+      
+      // Check status to determine if this is success or failure
+      final status = payload['status']?.toString().trim() ?? 'ok';
+      
+      if (status != 'ok') {
+        // Parse failure
+        final failure = _parseFailure(payload);
+        debugPrint("Gemini returned failure: status=$status, reasons=${failure.reasons}");
+        return ScoreResponse.failure(failure);
+      } else {
+        // Parse success - extract scores from nested structure
+        final scores = payload['scores'] as Map<String, dynamic>? ?? {};
+        final details = payload['details'] as Map<String, dynamic>? ?? {};
+        
+        // Create a flattened structure for the existing fromGeminiJson parser
+        final flatPayload = <String, dynamic>{
+          'form': scores['form'] ?? 0,
+          'intensity': scores['intensity'] ?? 0,
+          'holistic': scores['holistic'] ?? 0,
+          'issues': details['issues'] ?? [],
+          'cues': details['cues'] ?? [],
+        };
+        
+        final result = ScoreResponse.fromGeminiJson(flatPayload).recomputeHolistic();
+        debugPrint("Gemini returned: form=${result.form}, intensity=${result.intensity}, holistic=${result.holistic}");
+        return result;
+      }
     }
 
     // Require actual media for analysis

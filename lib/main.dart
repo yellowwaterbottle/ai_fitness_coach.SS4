@@ -4,6 +4,8 @@ import 'screens/record_screen.dart';
 import 'screens/processing_screen.dart';
 import 'screens/feedback_screen.dart';
 import 'screens/paywall_screen.dart';
+import 'screens/scorecard_failed_screen.dart';
+import 'models/score_response.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +32,10 @@ class BenchMvpApp extends StatelessWidget {
         ProcessingScreen.routeName: (_) => const ProcessingScreen(),
         FeedbackScreen.routeName: (_) => const FeedbackScreen(),
         PaywallScreen.routeName: (_) => const PaywallScreen(),
+        ScorecardFailedScreen.route: (ctx) {
+          final args = ModalRoute.of(ctx)!.settings.arguments as FailureInfo;
+          return ScorecardFailedScreen(failure: args);
+        },
       },
     );
   }

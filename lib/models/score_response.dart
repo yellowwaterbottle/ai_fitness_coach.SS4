@@ -1,6 +1,33 @@
 import 'dart:convert';
 import 'breakdown.dart';
 
+enum AnalysisStatus { ok, no_set, insufficient }
+
+enum FailReason {
+  poor_lighting,
+  subject_out_of_frame,
+  camera_motion,
+  too_short_clip,
+  blurry_frames,
+  wrong_orientation,
+  occlusions,
+  bar_not_visible,
+  multiple_people,
+  file_corrupt
+}
+
+class FailureInfo {
+  final AnalysisStatus status; // no_set or insufficient
+  final List<FailReason> reasons; // empty for no_set
+  final Map<FailReason, String> rationale; // canonical phrases
+
+  FailureInfo({
+    required this.status,
+    required this.reasons,
+    required this.rationale,
+  });
+}
+
 int _clamp01_100(num? v) {
   if (v == null || v.isNaN) return 0;
   final d = v.toDouble();
@@ -47,6 +74,8 @@ class Issue {
 }
 
 class ScoreResponse {
+  final bool success;
+  final FailureInfo? failure;
   final int holistic;
   final int form;
   final int intensity;
@@ -58,6 +87,8 @@ class ScoreResponse {
   final List<BreakdownItem>? intensityBreakdown;
 
   ScoreResponse({
+    required this.success,
+    this.failure,
     required this.holistic,
     required this.form,
     required this.intensity,
@@ -68,6 +99,31 @@ class ScoreResponse {
     this.formBreakdown,
     this.intensityBreakdown,
   });
+
+  ScoreResponse.success({
+    required this.holistic,
+    required this.form,
+    required this.intensity,
+    required this.issues,
+    required this.cues,
+    this.formBreakdown,
+    this.intensityBreakdown,
+  }) : success = true,
+       failure = null,
+       insufficient = false,
+       insufficientReasons = const [];
+
+  ScoreResponse.failure(this.failure)
+      : success = false,
+        holistic = 0,
+        form = 0,
+        intensity = 0,
+        issues = const [],
+        cues = const [],
+        insufficient = true,
+        insufficientReasons = const [],
+        formBreakdown = null,
+        intensityBreakdown = null;
 
   static int _clampScore(num value) {
     final intVal = value.round();
@@ -89,21 +145,16 @@ class ScoreResponse {
     final cues =
         (json['cues'] as List?)?.map((e) => e.toString()).toList() ??
         <String>[];
-    final insufficient = (json['insufficient'] ?? false) == true;
-    final insufficientReasons =
-        (json['insufficient_reasons'] as List?)
-            ?.map((e) => e.toString())
-            .toList() ??
-        <String>[];
+    // Legacy fields - not used in new success constructor but kept for compatibility
+    // final insufficient = (json['insufficient'] ?? false) == true;
+    // final insufficientReasons = (json['insufficient_reasons'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
 
-    return ScoreResponse(
+    return ScoreResponse.success(
       holistic: holisticDeterministic,
       form: form,
       intensity: intensity,
       issues: issues,
       cues: cues,
-      insufficient: insufficient,
-      insufficientReasons: insufficientReasons,
     );
   }
 
@@ -154,9 +205,8 @@ class ScoreResponse {
     final f = _clamp01_100(j["form"] as num?);
     final i = _clamp01_100(j["intensity"] as num?);
     final h = _clamp01_100(j["holistic"] as num?);
-    final insufficientReasons = ((j["insufficient_reasons"] as List?) ?? const [])
-        .map((e) => e.toString())
-        .toList();
+    // Legacy field - not used in new fromGeminiJson
+    // final insufficientReasons = ((j["insufficient_reasons"] as List?) ?? const []).map((e) => e.toString()).toList();
     
     final formBreak = _parseBreakdown(j['formBreakdown']);
     final intBreak = _parseBreakdown(j['intensityBreakdown']);
@@ -164,10 +214,12 @@ class ScoreResponse {
     print("fromGeminiJson: raw form=${j["form"]}, raw intensity=${j["intensity"]}, raw holistic=${j["holistic"]}");
     print("fromGeminiJson: clamped form=$f, clamped intensity=$i, final holistic=$h");
     
-    return ScoreResponse(
-      holistic: h, form: f, intensity: i,
-      insufficient: (j["insufficient"] ?? false) == true,
-      issues: issues, cues: cues, insufficientReasons: insufficientReasons,
+    return ScoreResponse.success(
+      holistic: h,
+      form: f,
+      intensity: i,
+      issues: issues,
+      cues: cues,
       formBreakdown: formBreak,
       intensityBreakdown: intBreak,
     );
@@ -182,6 +234,8 @@ class ScoreResponse {
 
   // Copy with method for updating scores
   ScoreResponse copyWith({
+    bool? success,
+    FailureInfo? failure,
     int? holistic,
     int? form,
     int? intensity,
@@ -193,6 +247,8 @@ class ScoreResponse {
     List<BreakdownItem>? intensityBreakdown,
   }) {
     return ScoreResponse(
+      success: success ?? this.success,
+      failure: failure ?? this.failure,
       holistic: holistic ?? this.holistic,
       form: form ?? this.form,
       intensity: intensity ?? this.intensity,

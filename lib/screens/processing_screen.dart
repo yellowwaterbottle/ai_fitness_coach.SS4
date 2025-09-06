@@ -75,7 +75,13 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 
       await _gating.recordAnalysisUsed();
       if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed('/feedback', arguments: score);
+      
+      // Route based on success/failure
+      if (!score.success && score.failure != null) {
+        Navigator.of(context).pushReplacementNamed('/scorecard_failed', arguments: score.failure);
+      } else {
+        Navigator.of(context).pushReplacementNamed('/feedback', arguments: score);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

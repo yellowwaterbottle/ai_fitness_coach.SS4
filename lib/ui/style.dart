@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 class AppStyle {
   // Dark navy palette
+  static const Color bg = Color(0xFF0E1220);
   static const Color bgTop = Color(0xFF0E1220);
   static const Color bgBottom = Color(0xFF171C2D);
   static const Color textPrimary = Colors.white;
@@ -17,6 +18,13 @@ class AppStyle {
       Color(0xFF7C3AED), // purple
       Color(0xFF5EEAD4), // teal
     ],
+  );
+
+  // CTA gradient for buttons
+  static const LinearGradient ctaGradient = LinearGradient(
+    colors: [Color(0xFF7C3AED), Color(0xFF5EEAD4)],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
   );
 
   static const Gradient pageBg = LinearGradient(
