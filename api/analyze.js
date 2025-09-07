@@ -18,7 +18,7 @@ First, analyze the visual context of the video. Describe the lifter's body posit
 Then, perform a biomechanical analysis of the user's form for a barbell bench press.
 Do not include any conversational text or summary outside of the final JSON object.
 Output only a single JSON object that strictly adheres to the schema provided below.
-If a metric or recommendation is not visible, provide a score of 0 and note N/A for the recommendation.
+If a metric is not visible, provide a score of 0 and note N/A for the flaw and recommendation.
 
 JSON Schema:
 {
@@ -58,12 +58,16 @@ JSON Schema:
           "type": "integer",
           "description": "A score from 0 to 100 for this specific metric."
         },
+        "observed_flaw": {
+          "type": "string",
+          "description": "A brief, specific description of the form flaw observed in the video for this metric. If there is no flaw, describe the good form."
+        },
         "recommendation": {
           "type": "string",
-          "description": "A concise, actionable coaching tip to improve this metric."
+          "description": "A concise, actionable coaching tip to improve this metric, based directly on the observed flaw."
         }
       },
-      "required": ["name", "score", "recommendation"]
+      "required": ["name", "score", "observed_flaw", "recommendation"]
     }
   }
 }`;
@@ -134,6 +138,25 @@ export default async function handler(req, res) {
       return res.status(500).json({ 
         error: 'Invalid analysis data structure from AI' 
       });
+    }
+
+    // Validate metrics structure
+    if (!Array.isArray(analysisData.metrics) || analysisData.metrics.length !== 6) {
+      return res.status(500).json({ 
+        error: 'Invalid metrics array structure from AI' 
+      });
+    }
+
+    // Validate each metric has required fields
+    const requiredFields = ['name', 'score', 'observed_flaw', 'recommendation'];
+    for (const metric of analysisData.metrics) {
+      for (const field of requiredFields) {
+        if (!(field in metric)) {
+          return res.status(500).json({ 
+            error: `Missing required field '${field}' in metrics` 
+          });
+        }
+      }
     }
 
     // Save to Supabase database
